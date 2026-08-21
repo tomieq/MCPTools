@@ -286,6 +286,3 @@ private enum ShellToolError: LocalizedError {
     }
 }
 
-private extension Bool {
-    var not: Bool { !self }
-}

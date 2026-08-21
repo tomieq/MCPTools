@@ -4,7 +4,7 @@
 import PackageDescription
 
 let package = Package(
-    name: "MCPFileEditor",
+    name: "MCPTools",
     platforms: [
         .macOS(.v13)
     ],
