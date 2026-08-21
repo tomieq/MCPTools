@@ -295,23 +295,24 @@ final class UnifiedPatchApplierTests: XCTestCase {
 }
 
 extension UnifiedPatchApplierTests {
-    func testResponseFormatsSelectTextStructuredOrBoth() throws {
+    func testResponsesArePlainText() throws {
         let payload = FileTreeResult(tree: "example")
+        let responses = ToolResponseFactory()
 
-        let text = try jsonObject(ToolResponseFactory(format: .text).success(payload))
-        XCTAssertNotNil(text["content"])
-        XCTAssertNil(text["structuredContent"])
+        let success = try jsonObject(responses.success(payload))
+        XCTAssertNil(success["structuredContent"])
+        XCTAssertEqual(try textContent(success), ["{\"data\":{\"tree\":\"example\"},\"ok\":true}"])
 
-        let structured = try jsonObject(ToolResponseFactory(format: .structured).success(payload))
-        XCTAssertEqual((structured["structuredContent"] as? [String: Any])?["ok"] as? Bool, true)
-        XCTAssertEqual((structured["content"] as? [[String: String]])?.count, 0)
-
-        let both = try jsonObject(ToolResponseFactory(format: .both).success(payload))
-        XCTAssertEqual((both["structuredContent"] as? [String: Any])?["ok"] as? Bool, true)
-        XCTAssertEqual((both["content"] as? [[String: String]])?.count, 1)
+        let failure = try jsonObject(responses.failure(NSError(domain: "test", code: 1, userInfo: [NSLocalizedDescriptionKey: "Failed"])))
+        XCTAssertNil(failure["structuredContent"])
+        XCTAssertEqual(try textContent(failure), ["Failed"])
     }
 
     private func jsonObject<T: Encodable>(_ value: T) throws -> [String: Any] {
         try XCTUnwrap(JSONSerialization.jsonObject(with: JSONEncoder().encode(value)) as? [String: Any])
+    }
+
+    private func textContent(_ value: [String: Any]) throws -> [String] {
+        try XCTUnwrap(value["content"] as? [[String: String]]).compactMap { $0["text"] }
     }
 }

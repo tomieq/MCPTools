@@ -8,21 +8,14 @@ import Swifter
 /// the server process itself is permitted to access. Use a sandboxed OS account or container when
 /// stronger isolation is required.
 public final class MCPShell {
-    public enum ResponseFormat {
-        case text
-        case structured
-        case both
-    }
-
     public let mcp: MCPServer
 
     public init(config: ShellConfig,
-                server: HttpServer? = nil,
-                responseFormat: ResponseFormat = .both) throws {
+                server: HttpServer? = nil) throws {
         let projectDirectory = try ShellProjectDirectory(projectPath: config.projectPath)
         let serverConfig = MCPServerConfig(
             serverName: "MCP Shell",
-            engines: [ShellEngine(projectDirectory: projectDirectory, responseFormat: responseFormat)]
+            engines: [ShellEngine(projectDirectory: projectDirectory)]
         )
         self.mcp = MCPServer(config: serverConfig, server: server)
     }

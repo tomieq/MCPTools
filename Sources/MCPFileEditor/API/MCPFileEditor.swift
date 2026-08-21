@@ -8,12 +8,6 @@ import MCPServer
 import Swifter
 
 public final class MCPFileEditor {
-    public enum ResponseFormat {
-        case text
-        case structured
-        case both
-    }
-
     let config: FolderConfig
     let folder: Folder
     let fileCache: FileCache
@@ -21,15 +15,14 @@ public final class MCPFileEditor {
     public let mcp: MCPServer
 
     public init(config: FolderConfig,
-                server: HttpServer? = nil,
-                responseFormat: ResponseFormat = .both) throws {
+                server: HttpServer? = nil) throws {
         self.config = config
         self.folder = Folder(config: config)
         self.fileCache = FileCache(folder: folder)
         let config = MCPServerConfig(
             serverName: "MCP File Editor",
             engines: [
-                CoderEngine(folder: folder, cache: fileCache, responseFormat: responseFormat)
+                CoderEngine(folder: folder, cache: fileCache)
             ]
         )
         self.mcp = MCPServer(config: config, server: server)

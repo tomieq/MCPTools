@@ -11,25 +11,9 @@ private enum ShellCommand: String, CustomStringConvertible {
 
 final class ShellEngine: Engine {
     private let projectDirectory: ShellProjectDirectory
-    private let responseFormat: MCPShell.ResponseFormat
-
-    init(projectDirectory: ShellProjectDirectory, responseFormat: MCPShell.ResponseFormat) {
+    init(projectDirectory: ShellProjectDirectory) {
         self.projectDirectory = projectDirectory
-        self.responseFormat = responseFormat
     }
-
-    private static let outputSchema = ToolParameter(type: .object,
-                                                    properties: [
-                                                        "ok": .init(type: .boolean, description: "Whether the shell command ran."),
-                                                        "exitStatus": .init(type: .integer, description: "Process exit status."),
-                                                        "timedOut": .init(type: .boolean, description: "Whether execution exceeded timeoutSeconds."),
-                                                        "truncated": .init(type: .boolean, description: "Whether output exceeded maxOutputBytes."),
-                                                        "outputBytes": .init(type: .integer, description: "Combined stdout and stderr bytes captured."),
-                                                        "output": .init(type: .string, description: "Captured stdout and stderr."),
-                                                        "errorCode": .init(type: .string, description: "Machine-readable failure code."),
-                                                        "error": .init(type: .string, description: "Human-readable failure message.")
-                                                    ],
-                                                    required: ["ok"])
 
     let instructions = "Run shell commands with the configured project directory as the fixed initial working directory. Use this only when no dedicated MCP tool fits. This tool may change files and run arbitrary executables. It is not a filesystem sandbox."
 
@@ -41,7 +25,7 @@ final class ShellEngine: Engine {
                   "environment": .init(type: .object, description: "String-to-string environment variables for this command only."),
                   "timeoutSeconds": .init(type: .integer, description: "Maximum runtime in seconds, from 1 through 900; defaults to 300."),
                   "maxOutputBytes": .init(type: .integer, description: "Maximum combined stdout/stderr bytes to return, from 1 through 1,048,576; defaults to 65,536.")
-              ], required: ["command"]), outputSchema: ShellEngine.outputSchema)
+              ], required: ["command"]))
     ]
 
     func canHandle(_ command: String) -> Bool {
@@ -179,12 +163,6 @@ private struct ShellResponse: Encodable {
     let output: String
 }
 
-private struct ShellFailure: Encodable {
-    let ok = false
-    let errorCode: String
-    let error: String
-}
-
 private final class OutputCollector: @unchecked Sendable {
     private let lock = NSLock()
     private let maximumBytes: Int
@@ -240,22 +218,15 @@ private extension ShellEngine {
     }
 
     func failure(_ error: Error) -> ToolResult {
-        encoded(ShellFailure(errorCode: "shell_failed", error: error.localizedDescription))
+        ToolResult([error.localizedDescription])
     }
 
     func encoded<T: Encodable>(_ value: T) -> ToolResult {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        let fallback = "{\"ok\":false,\"errorCode\":\"serialization_failed\",\"error\":\"Could not serialize shell response\"}"
+        let fallback = "Could not serialize shell response"
         let text = (try? String(data: encoder.encode(value), encoding: .utf8)) ?? fallback
-        switch responseFormat {
-        case .text:
-            return ToolResult([text])
-        case .structured:
-            return (try? ToolResult(structuredContent: value)) ?? ToolResult([text])
-        case .both:
-            return (try? ToolResult(structuredContent: value, text: [text])) ?? ToolResult([text])
-        }
+        return ToolResult([text])
     }
 }
 
@@ -285,4 +256,3 @@ private enum ShellToolError: LocalizedError {
         }
     }
 }
-
