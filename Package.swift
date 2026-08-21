@@ -11,7 +11,8 @@ let package = Package(
     products: [
         .library(name: "MCPFileEditor", targets: ["MCPFileEditor"]),
         .library(name: "MCPGit", targets: ["MCPGit"]),
-        .library(name: "MCPShell", targets: ["MCPShell"])
+        .library(name: "MCPShell", targets: ["MCPShell"]),
+        .library(name: "MCPRemoteShell", targets: ["MCPRemoteShell"])
     ],
     dependencies: [
         .package(url: "https://github.com/tomieq/swifter", .upToNextMajor(from: "3.1.1")),
@@ -39,12 +40,17 @@ let package = Package(
                 dependencies: [
                     .product(name: "MCPServer", package: "MCPServer")
                 ]),
+        .target(name: "MCPRemoteShell",
+                dependencies: [
+                    .product(name: "MCPServer", package: "MCPServer")
+                ]),
         .executableTarget(
             name: "MCPFileEditorServer",
             dependencies: [
                 .target(name: "MCPFileEditor"),
                 .target(name: "MCPGit"),
                 .target(name: "MCPShell"),
+                .target(name: "MCPRemoteShell"),
                 .product(name: "Env", package: "Env")
             ]
         ),
