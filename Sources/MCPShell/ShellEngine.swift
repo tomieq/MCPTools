@@ -5,6 +5,7 @@ import Swifter
 
 private enum ShellCommand: String, CustomStringConvertible {
     case run = "shell_run"
+    case spawn = "shell_spawn"
 
     var description: String { rawValue }
 }
@@ -15,7 +16,7 @@ final class ShellEngine: Engine {
         self.projectDirectory = projectDirectory
     }
 
-    let instructions = "Run shell commands with the configured project directory as the fixed initial working directory. Use this only when no dedicated MCP tool fits. This tool may change files and run arbitrary executables. It is not a filesystem sandbox."
+    let instructions = "Run shell commands with the configured project directory as the fixed initial working directory. Use this only when no dedicated MCP tool fits. Use shell_spawn for long-lived processes; it returns immediately and discards all process output. These tools may change files and run arbitrary executables. They are not a filesystem sandbox."
 
     let tools: [ToolsList.Schema] = [
         .init(ShellCommand.run,
@@ -25,6 +26,12 @@ final class ShellEngine: Engine {
                   "environment": .init(type: .object, description: "String-to-string environment variables for this command only."),
                   "timeoutSeconds": .init(type: .integer, description: "Maximum runtime in seconds, from 1 through 900; defaults to 300."),
                   "maxOutputBytes": .init(type: .integer, description: "Maximum combined stdout/stderr bytes to return, from 1 through 1,048,576; defaults to 65,536.")
+              ], required: ["command"])),
+        .init(ShellCommand.spawn,
+              description: "Start a long-lived zsh command in the fixed project directory and return immediately with its process ID. Run the application in the foreground; do not add nohup, output redirects, or background operators. Standard input, output, and error are discarded, and the process is not stopped when the tool call completes. The working directory cannot be supplied by the caller. Optional environment variables apply only to the spawned process.",
+              inputSchema: .init(properties: [
+                  "command": .init(type: .string, description: "Long-lived shell command to start from the project directory."),
+                  "environment": .init(type: .object, description: "String-to-string environment variables for the spawned process only.")
               ], required: ["command"]))
     ]
 
@@ -33,14 +40,23 @@ final class ShellEngine: Engine {
     }
 
     func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
-        guard ShellCommand(rawValue: command) == .run else { return ToolResult([]) }
         do {
-            let request: Command<Arguments> = try body.decode()
-            guard let arguments = request.params?.arguments else {
-                throw ShellToolError.invalidArgument("Missing tool arguments")
+            switch ShellCommand(rawValue: command) {
+            case .run:
+                let request: Command<Arguments> = try body.decode()
+                guard let arguments = request.params?.arguments else {
+                    throw ShellToolError.invalidArgument("Missing tool arguments")
+                }
+                return response(try run(arguments))
+            case .spawn:
+                let request: Command<SpawnArguments> = try body.decode()
+                guard let arguments = request.params?.arguments else {
+                    throw ShellToolError.invalidArgument("Missing tool arguments")
+                }
+                return response(try spawn(arguments))
+            case nil:
+                return ToolResult([])
             }
-            let result = try run(arguments)
-            return response(result)
         } catch {
             return failure(error)
         }
@@ -96,6 +112,27 @@ private extension ShellEngine {
         )
     }
 
+    func spawn(_ arguments: SpawnArguments) throws -> ShellSpawnResult {
+        let command = try validatedCommand(arguments.command)
+        let environment = try buildEnvironment(arguments.environment ?? [:])
+        let task = Process()
+        let nullDevice = FileHandle.nullDevice
+        task.executableURL = URL(fileURLWithPath: "/bin/zsh")
+        task.arguments = ["-c", command]
+        task.currentDirectoryURL = projectDirectory.url
+        task.environment = environment
+        task.standardInput = nullDevice
+        task.standardOutput = nullDevice
+        task.standardError = nullDevice
+
+        try task.run()
+        let processIdentifier = task.processIdentifier
+        DispatchQueue.global(qos: .utility).async {
+            task.waitUntilExit()
+        }
+        return ShellSpawnResult(processIdentifier: processIdentifier)
+    }
+
     func validatedCommand(_ command: String) throws -> String {
         guard command.isEmpty.not, command.count <= 100_000, command.contains("\0").not else {
             throw ShellToolError.invalidArgument("command must be between 1 and 100,000 characters and contain no NUL bytes")
@@ -146,6 +183,11 @@ private struct Arguments: Decodable {
     let maxOutputBytes: Int?
 }
 
+private struct SpawnArguments: Decodable {
+    let command: String
+    let environment: [String: String]?
+}
+
 private struct ShellExecutionResult: Encodable {
     let output: String
     let status: Int32
@@ -161,6 +203,10 @@ private struct ShellResponse: Encodable {
     let truncated: Bool
     let outputBytes: Int
     let output: String
+}
+
+private struct ShellSpawnResult: Encodable {
+    let processIdentifier: Int32
 }
 
 private final class OutputCollector: @unchecked Sendable {
@@ -215,6 +261,10 @@ private extension ShellEngine {
                                     outputBytes: result.outputBytes,
                                     output: result.output)
         return encoded(payload)
+    }
+
+    func response(_ result: ShellSpawnResult) -> ToolResult {
+        encoded(result)
     }
 
     func failure(_ error: Error) -> ToolResult {
