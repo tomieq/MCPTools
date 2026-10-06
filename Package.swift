@@ -12,13 +12,15 @@ let package = Package(
         .library(name: "MCPFileEditor", targets: ["MCPFileEditor"]),
         .library(name: "MCPGit", targets: ["MCPGit"]),
         .library(name: "MCPShell", targets: ["MCPShell"]),
-        .library(name: "MCPRemoteShell", targets: ["MCPRemoteShell"])
+        .library(name: "MCPRemoteShell", targets: ["MCPRemoteShell"]),
+        .library(name: "MCPConfluence", targets: ["MCPConfluence"])
     ],
     dependencies: [
         .package(url: "https://github.com/tomieq/swifter", .upToNextMajor(from: "3.1.1")),
         .package(url: "https://github.com/tomieq/Logger", .upToNextMajor(from: "1.1.0")),
         .package(url: "https://github.com/tomieq/Env", .upToNextMajor(from: "1.0.8")),
         .package(url: "https://github.com/tomieq/MCPServer", branch: "master"),
+        .package(url: "https://github.com/tomieq/WebResponse.git", branch: "master"),
         .package(url: "https://github.com/aus-der-Technik/FileMonitor.git", from: "1.0.0")
     ],
     targets: [
@@ -44,6 +46,11 @@ let package = Package(
                 dependencies: [
                     .product(name: "MCPServer", package: "MCPServer")
                 ]),
+        .target(name: "MCPConfluence",
+                dependencies: [
+                    .product(name: "MCPServer", package: "MCPServer"),
+                    .product(name: "WebResponse", package: "WebResponse")
+                ]),
         .executableTarget(
             name: "MCPFileEditorServer",
             dependencies: [
@@ -51,6 +58,7 @@ let package = Package(
                 .target(name: "MCPGit"),
                 .target(name: "MCPShell"),
                 .target(name: "MCPRemoteShell"),
+                .target(name: "MCPConfluence"),
                 .product(name: "Env", package: "Env")
             ]
         ),
