@@ -59,7 +59,11 @@ enum SkillParser {
               first == last, first == "\"" || first == "'" else {
             return value
         }
-        return String(value.dropFirst().dropLast())
+        let inner = String(value.dropFirst().dropLast())
+        guard first == "\"" else { return inner }
+        return inner
+            .replacingOccurrences(of: "\\\"", with: "\"")
+            .replacingOccurrences(of: "\\\\", with: "\\")
     }
 
     private static func nonEmpty(_ value: String?) -> String? {

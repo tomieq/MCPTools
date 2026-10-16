@@ -83,6 +83,34 @@ final class SkillCatalogTests: XCTestCase {
         XCTAssertEqual(catalog.skills.first?.content, "First")
     }
 
+    func testCreateStoresSkillInFirstPathAndRoundTrips() throws {
+        let second = directory.appendingPathComponent("second", isDirectory: true)
+        let first = directory.appendingPathComponent("first", isDirectory: true)
+        try FileManager.default.createDirectory(at: first, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: second, withIntermediateDirectories: true)
+
+        let catalog = try SkillCatalog(skillPaths: [first.path, second.path])
+        let created = try catalog.create(name: "my-skill", description: "Says \"hi\": always", content: "# Do it\n\nSteps.")
+
+        XCTAssertEqual(created.directoryURL.deletingLastPathComponent().lastPathComponent, "first")
+        XCTAssertEqual(catalog.skill(named: "my-skill")?.description, "Says \"hi\": always")
+
+        let reloaded = try SkillCatalog(skillPaths: [first.path])
+        XCTAssertEqual(reloaded.skill(named: "my-skill")?.description, "Says \"hi\": always")
+        XCTAssertEqual(reloaded.skill(named: "my-skill")?.content, "# Do it\n\nSteps.")
+    }
+
+    func testCreateRejectsDuplicatesAndInvalidNames() throws {
+        try writeSkill("existing", markdown: "Body")
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+
+        XCTAssertThrowsError(try catalog.create(name: "existing", description: "d", content: "c"))
+        XCTAssertThrowsError(try catalog.create(name: "../escape", description: "d", content: "c"))
+        XCTAssertThrowsError(try catalog.create(name: ".hidden", description: "d", content: "c"))
+        XCTAssertThrowsError(try catalog.create(name: "ok", description: " ", content: "c"))
+        XCTAssertThrowsError(try catalog.create(name: "ok", description: "d", content: "  "))
+    }
+
     func testThrowsForMissingPath() {
         XCTAssertThrowsError(try SkillCatalog(skillPaths: [directory.appendingPathComponent("missing").path]))
     }

@@ -6,6 +6,7 @@ private enum SkillCommand: String, CustomStringConvertible {
     case list = "skill_list"
     case load = "skill_load"
     case readFile = "skill_read_file"
+    case create = "skill_create"
 
     var description: String { rawValue }
 }
@@ -15,33 +16,47 @@ final class SkillEngine: Engine {
     private static let maximumListedFiles = 200
 
     private let catalog: SkillCatalog
-    let instructions: String
-    let tools: [ToolsList.Schema]
 
-    init(catalog: SkillCatalog) {
-        self.catalog = catalog
+    // Computed so skills created at runtime show up in later tool listings.
+    var instructions: String {
+        "Provides skills: reusable, task-specific instructions. When a task matches a skill description, call skill_load and follow the returned instructions. Files referenced by a skill can be read with skill_read_file. Use skill_create to save a new reusable skill.\nAvailable skills:\n\(summary)"
+    }
 
-        let summary = catalog.skills.isEmpty
-            ? "No skills are available."
-            : catalog.skills.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
-        instructions = "Provides skills: reusable, task-specific instructions. When a task matches a skill description, call skill_load and follow the returned instructions. Files referenced by a skill can be read with skill_read_file.\nAvailable skills:\n\(summary)"
-        let names = catalog.skills.map(\.name)
-        tools = [
+    var tools: [ToolsList.Schema] {
+        [
             .init(SkillCommand.list,
                   description: "List all available skills with their descriptions.",
                   inputSchema: .init(properties: [:], required: [])),
             .init(SkillCommand.load,
                   description: "Load the full instructions of a skill. Call it when the task matches a skill description, then follow the returned instructions.\nAvailable skills:\n\(summary)",
                   inputSchema: .init(properties: [
-                      "name": .init(type: .string, description: "Name of the skill to load.", enumValues: names.isEmpty ? nil : names)
+                      "name": .init(type: .string, description: "Name of the skill to load.")
                   ], required: ["name"])),
             .init(SkillCommand.readFile,
                   description: "Read a UTF-8 text file that belongs to a skill, for example a reference or script mentioned in its instructions. Only files inside the skill folder can be read.",
                   inputSchema: .init(properties: [
-                      "name": .init(type: .string, description: "Name of the skill that owns the file.", enumValues: names.isEmpty ? nil : names),
+                      "name": .init(type: .string, description: "Name of the skill that owns the file."),
                       "path": .init(type: .string, description: "File path relative to the skill folder.")
-                  ], required: ["name", "path"]))
+                  ], required: ["name", "path"])),
+            .init(SkillCommand.create,
+                  description: "Create a new skill from the given instructions so it can be loaded in future sessions. It is stored in the primary skill folder. An existing skill is never overwritten.",
+                  inputSchema: .init(properties: [
+                      "name": .init(type: .string, description: "Unique skill name, also used as the folder name: letters, digits, '-', '_' or '.', at most 64 characters."),
+                      "description": .init(type: .string, description: "One sentence saying what the skill does and when to use it."),
+                      "content": .init(type: .string, description: "Skill instructions in Markdown, without frontmatter.")
+                  ], required: ["name", "description", "content"]))
         ]
+    }
+
+    init(catalog: SkillCatalog) {
+        self.catalog = catalog
+    }
+
+    private var summary: String {
+        let skills = catalog.skills
+        return skills.isEmpty
+            ? "No skills are available."
+            : skills.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
     }
 
     func canHandle(_ command: String) -> Bool {
@@ -65,6 +80,15 @@ final class SkillEngine: Engine {
                     throw SkillToolError.invalidArgument("Missing tool arguments")
                 }
                 return ToolResult([try readFile(arguments)])
+            case .create:
+                let request: Command<CreateArguments> = try body.decode()
+                guard let arguments = request.params?.arguments else {
+                    throw SkillToolError.invalidArgument("Missing tool arguments")
+                }
+                let skill = try catalog.create(name: arguments.name,
+                                               description: arguments.description,
+                                               content: arguments.content)
+                return ToolResult(["Skill created: \(skill.name) (\(skill.directoryURL.path))"])
             case nil:
                 return ToolResult([])
             }
@@ -157,6 +181,12 @@ private struct LoadArguments: Decodable {
 private struct ReadFileArguments: Decodable {
     let name: String
     let path: String
+}
+
+private struct CreateArguments: Decodable {
+    let name: String
+    let description: String
+    let content: String
 }
 
 private struct SkillSummary: Encodable {
