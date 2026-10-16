@@ -56,7 +56,7 @@ final class SkillEngine: Engine {
         let skills = catalog.skills
         return skills.isEmpty
             ? "No skills are available."
-            : skills.map { "- \($0.name): \($0.description)" }.joined(separator: "\n")
+            : skills.map { "- \($0.name)" }.joined(separator: "\n")
     }
 
     func canHandle(_ command: String) -> Bool {
