@@ -7,6 +7,7 @@ private enum SkillCommand: String, CustomStringConvertible {
     case load = "skill_load"
     case readFile = "skill_read_file"
     case create = "skill_create"
+    case update = "skill_update"
 
     var description: String { rawValue }
 }
@@ -19,7 +20,7 @@ final class SkillEngine: Engine {
 
     // Computed so skills created at runtime show up in later tool listings.
     var instructions: String {
-        "Provides skills: reusable, task-specific instructions. When a task matches a skill description, call skill_load and follow the returned instructions. Files referenced by a skill can be read with skill_read_file. Use skill_create to save a new reusable skill.\nAvailable skills:\n\(summary)"
+        "Provides skills: reusable, task-specific instructions. When a task matches a skill description, call skill_load and follow the returned instructions. Files referenced by a skill can be read with skill_read_file. Use skill_create to save a new reusable skill and skill_update to fix or improve an existing one.\nAvailable skills:\n\(summary)"
     }
 
     var tools: [ToolsList.Schema] {
@@ -45,7 +46,16 @@ final class SkillEngine: Engine {
                       "description": .init(type: .string, description: "One sentence saying what the skill does and when to use it."),
                       "content": .init(type: .string, description: "Skill instructions in Markdown, without frontmatter."),
                       "files": .init(type: .object, description: "Optional extra text files stored next to SKILL.md, as an object mapping a path relative to the skill folder (for example \"references/api.md\") to the file content. Parent folders are created. Reference them from the instructions so they can be read with skill_read_file.")
-                  ], required: ["name", "description", "content"]))
+                  ], required: ["name", "description", "content"])),
+            .init(SkillCommand.update,
+                  description: "Update an existing skill. Only the given parts change: the description, the instructions, files to add or overwrite, and files to delete. Use it when a skill turned out to be wrong, outdated or incomplete. Load the skill first so the new content builds on the current one.",
+                  inputSchema: .init(properties: [
+                      "name": .init(type: .string, description: "Name of the skill to update. The name itself cannot be changed."),
+                      "description": .init(type: .string, description: "New one-sentence description. Omit to keep the current one."),
+                      "content": .init(type: .string, description: "New full skill instructions in Markdown, without frontmatter. Replaces the current instructions. Omit to keep them."),
+                      "files": .init(type: .object, description: "Optional text files to add or overwrite, as an object mapping a path relative to the skill folder (for example \"references/api.md\") to the file content."),
+                      "delete_files": .init(type: .array, items: .init(type: .string), description: "Optional paths relative to the skill folder of files to delete. SKILL.md cannot be deleted.")
+                  ], required: ["name"]))
         ]
     }
 
@@ -91,6 +101,17 @@ final class SkillEngine: Engine {
                                                content: arguments.content,
                                                files: arguments.files ?? [:])
                 return ToolResult(["Skill created: \(skill.name) (\(skill.directoryURL.path))"])
+            case .update:
+                let request: Command<UpdateArguments> = try body.decode()
+                guard let arguments = request.params?.arguments else {
+                    throw SkillToolError.invalidArgument("Missing tool arguments")
+                }
+                let skill = try catalog.update(name: arguments.name,
+                                               description: arguments.description,
+                                               content: arguments.content,
+                                               files: arguments.files ?? [:],
+                                               deleteFiles: arguments.deleteFiles ?? [])
+                return ToolResult(["Skill updated: \(skill.name) (\(skill.directoryURL.path))"])
             case nil:
                 return ToolResult([])
             }
@@ -190,6 +211,19 @@ private struct CreateArguments: Decodable {
     let description: String
     let content: String
     let files: [String: String]?
+}
+
+private struct UpdateArguments: Decodable {
+    let name: String
+    let description: String?
+    let content: String?
+    let files: [String: String]?
+    let deleteFiles: [String]?
+
+    enum CodingKeys: String, CodingKey {
+        case name, description, content, files
+        case deleteFiles = "delete_files"
+    }
 }
 
 private struct SkillSummary: Encodable {

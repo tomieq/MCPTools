@@ -137,6 +137,53 @@ final class SkillCatalogTests: XCTestCase {
         XCTAssertFalse(FileManager.default.fileExists(atPath: directory.deletingLastPathComponent().appendingPathComponent("escape.md").path))
     }
 
+    func testUpdateChangesOnlyGivenPartsAndKeepsOtherFrontmatter() throws {
+        try writeSkill("tool", markdown: "---\nname: tool\ndescription: Old\nlicense: MIT\n---\nOld body")
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+
+        let updated = try catalog.update(name: "tool", description: "New \"desc\"")
+        XCTAssertEqual(updated.description, "New \"desc\"")
+        XCTAssertEqual(updated.content, "Old body")
+
+        let body = try catalog.update(name: "tool", content: "New body")
+        XCTAssertEqual(body.description, "New \"desc\"")
+        XCTAssertEqual(body.content, "New body")
+        XCTAssertEqual(catalog.skill(named: "tool")?.content, "New body")
+
+        let raw = try String(contentsOf: updated.directoryURL.appendingPathComponent("SKILL.md"), encoding: .utf8)
+        XCTAssertTrue(raw.contains("license: MIT"))
+        XCTAssertEqual(raw.components(separatedBy: "description:").count, 2)
+
+        let reloaded = try SkillCatalog(skillPaths: [directory.path])
+        XCTAssertEqual(reloaded.skill(named: "tool")?.content, "New body")
+    }
+
+    func testUpdateAddsAndDeletesFiles() throws {
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+        let created = try catalog.create(name: "s", description: "d", content: "c", files: ["old.md": "x"])
+
+        _ = try catalog.update(name: "s", files: ["new/a.md": "A"], deleteFiles: ["old.md"])
+
+        let fileManager = FileManager.default
+        XCTAssertFalse(fileManager.fileExists(atPath: created.directoryURL.appendingPathComponent("old.md").path))
+        XCTAssertEqual(try String(contentsOf: created.directoryURL.appendingPathComponent("new/a.md"), encoding: .utf8), "A")
+    }
+
+    func testUpdateRejectsInvalidRequests() throws {
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+        _ = try catalog.create(name: "s", description: "d", content: "c")
+
+        XCTAssertThrowsError(try catalog.update(name: "missing", content: "x"))
+        XCTAssertThrowsError(try catalog.update(name: "s"))
+        XCTAssertThrowsError(try catalog.update(name: "s", content: " "))
+        XCTAssertThrowsError(try catalog.update(name: "s", description: " "))
+        XCTAssertThrowsError(try catalog.update(name: "s", files: ["../x.md": "x"]))
+        XCTAssertThrowsError(try catalog.update(name: "s", deleteFiles: ["SKILL.md"]))
+        XCTAssertThrowsError(try catalog.update(name: "s", deleteFiles: ["nope.md"]))
+        XCTAssertThrowsError(try catalog.update(name: "s", files: ["a.md": "x"], deleteFiles: ["a.md"]))
+        XCTAssertEqual(catalog.skill(named: "s")?.content, "c")
+    }
+
     func testThrowsForMissingPath() {
         XCTAssertThrowsError(try SkillCatalog(skillPaths: [directory.appendingPathComponent("missing").path]))
     }

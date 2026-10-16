@@ -117,6 +117,122 @@ final class SkillCatalog {
         return skill
     }
 
+    /// Changes only the given parts of an existing skill; the name and other frontmatter fields stay as they are.
+    /// `files` are added or overwritten, `deleteFiles` are removed.
+    func update(name: String, description: String? = nil, content: String? = nil,
+                files: [String: String] = [:], deleteFiles: [String] = []) throws -> Skill {
+        let newDescription = try description.map { raw -> String in
+            let single = raw.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
+            guard !single.isEmpty else {
+                throw SkillCatalogError.invalidSkill("description must not be empty")
+            }
+            return single
+        }
+        let newBody = try content.map { raw -> String in
+            let body = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !body.isEmpty, body.utf8.count <= Self.maximumContentBytes, !body.contains("\0") else {
+                throw SkillCatalogError.invalidSkill("content must not be empty and must be at most \(Self.maximumContentBytes) bytes")
+            }
+            return body
+        }
+        let writes = try Self.validatedExtraFiles(files)
+        let deletions = try Set(deleteFiles.map(Self.normalizedRelativePath))
+        guard newDescription != nil || newBody != nil || !writes.isEmpty || !deletions.isEmpty else {
+            throw SkillCatalogError.invalidSkill("Nothing to update: pass description, content, files or delete_files")
+        }
+        guard deletions.isDisjoint(with: writes.keys) else {
+            throw SkillCatalogError.invalidSkill("A file cannot be both written and deleted")
+        }
+
+        lock.lock()
+        defer { lock.unlock() }
+        guard let index = loadedSkills.firstIndex(where: { $0.name == name }) else {
+            throw SkillCatalogError.invalidSkill("Unknown skill: \(name)")
+        }
+        let existing = loadedSkills[index]
+        let base = existing.directoryURL.resolvingSymlinksInPath().standardizedFileURL
+        let skillFileURL = existing.directoryURL.appendingPathComponent(Self.skillFileName)
+
+        let resolve = { (path: String) throws -> URL in
+            let url = base.appendingPathComponent(path).resolvingSymlinksInPath().standardizedFileURL
+            guard url.path.hasPrefix(base.path + "/") else {
+                throw SkillCatalogError.invalidSkill("Path must stay inside the skill folder: \(path)")
+            }
+            return url
+        }
+        let writeTargets = try writes.keys.map { ($0, try resolve($0)) }
+        let deleteTargets = try deletions.map { path -> URL in
+            let url = try resolve(path)
+            var isDirectory: ObjCBool = false
+            guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDirectory), !isDirectory.boolValue else {
+                throw SkillCatalogError.invalidSkill("File to delete not found: \(path)")
+            }
+            return url
+        }
+
+        var markdown: String?
+        if newDescription != nil || newBody != nil {
+            guard let raw = try? String(contentsOf: skillFileURL, encoding: .utf8) else {
+                throw SkillCatalogError.invalidSkill("\(Self.skillFileName) of \(name) could not be read")
+            }
+            let rewritten = Self.rewrite(markdown: raw, skillName: name, description: newDescription, body: newBody)
+            guard SkillParser.parse(markdown: rewritten, directoryURL: existing.directoryURL)?.name == name else {
+                throw SkillCatalogError.invalidSkill("Updated \(Self.skillFileName) could not be parsed")
+            }
+            markdown = rewritten
+        }
+
+        if let markdown {
+            try markdown.write(to: skillFileURL, atomically: true, encoding: .utf8)
+        }
+        for (path, url) in writeTargets {
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try writes[path]?.write(to: url, atomically: true, encoding: .utf8)
+        }
+        for url in deleteTargets {
+            try FileManager.default.removeItem(at: url)
+        }
+
+        guard let skill = Self.loadSkill(in: existing.directoryURL) else {
+            throw SkillCatalogError.invalidSkill("Updated skill could not be parsed")
+        }
+        Self.logger.i("Updated skill: \(skill.name)")
+        loadedSkills[index] = skill
+        return skill
+    }
+
+    /// Replaces the description and/or body of a SKILL.md while keeping its other frontmatter lines.
+    private static func rewrite(markdown: String, skillName: String, description: String?, body: String?) -> String {
+        let lines = markdown.replacingOccurrences(of: "\r\n", with: "\n").components(separatedBy: "\n")
+        var frontmatter: [String] = []
+        var existingBody = markdown
+        if lines.first?.trimmingCharacters(in: .whitespaces) == "---",
+           let end = lines.indices.dropFirst().first(where: { lines[$0].trimmingCharacters(in: .whitespaces) == "---" }) {
+            frontmatter = Array(lines[1..<end])
+            existingBody = lines[(end + 1)...].joined(separator: "\n")
+        } else if description != nil {
+            frontmatter = ["name: \(skillName)"]
+        }
+
+        if let description {
+            var kept: [String] = []
+            var skippingDescription = false
+            for line in frontmatter {
+                let indented = line.hasPrefix(" ") || line.hasPrefix("\t") || line.isEmpty
+                if skippingDescription && indented { continue }
+                skippingDescription = line.hasPrefix("description:")
+                if !skippingDescription { kept.append(line) }
+            }
+            let escaped = description
+                .replacingOccurrences(of: "\\", with: "\\\\")
+                .replacingOccurrences(of: "\"", with: "\\\"")
+            frontmatter = kept + ["description: \"\(escaped)\""]
+        }
+
+        let text = body ?? existingBody.trimmingCharacters(in: .whitespacesAndNewlines)
+        return frontmatter.isEmpty ? "\(text)\n" : "---\n\(frontmatter.joined(separator: "\n"))\n---\n\n\(text)\n"
+    }
+
     /// Returns the files with normalized relative paths, rejecting anything that could leave the skill folder.
     private static func validatedExtraFiles(_ files: [String: String]) throws -> [String: String] {
         guard files.count <= maximumExtraFiles else {
@@ -126,15 +242,7 @@ final class SkillCatalog {
         var result: [String: String] = [:]
         var totalBytes = 0
         for (path, text) in files {
-            let components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
-            guard !components.isEmpty, !path.hasPrefix("/"), !path.contains("\0"), !path.contains("\\"),
-                  components.allSatisfy({ $0 != ".." && $0 != "." && !$0.hasPrefix(".") }) else {
-                throw SkillCatalogError.invalidSkill("Invalid file path: \(path). Use a relative path inside the skill folder without '..' or hidden components")
-            }
-            let normalized = components.joined(separator: "/")
-            guard normalized.lowercased() != skillFileName.lowercased() else {
-                throw SkillCatalogError.invalidSkill("\(skillFileName) is generated from content and cannot be passed as an extra file")
-            }
+            let normalized = try normalizedRelativePath(path)
             guard result[normalized] == nil else {
                 throw SkillCatalogError.invalidSkill("Duplicate file path: \(normalized)")
             }
@@ -148,6 +256,19 @@ final class SkillCatalog {
             result[normalized] = text
         }
         return result
+    }
+
+    private static func normalizedRelativePath(_ path: String) throws -> String {
+        let components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+        guard !components.isEmpty, !path.hasPrefix("/"), !path.contains("\0"), !path.contains("\\"),
+              components.allSatisfy({ $0 != ".." && $0 != "." && !$0.hasPrefix(".") }) else {
+            throw SkillCatalogError.invalidSkill("Invalid file path: \(path). Use a relative path inside the skill folder without '..' or hidden components")
+        }
+        let normalized = components.joined(separator: "/")
+        guard normalized.lowercased() != skillFileName.lowercased() else {
+            throw SkillCatalogError.invalidSkill("\(skillFileName) is managed through the description and content arguments, not as a file path")
+        }
+        return normalized
     }
 
     private static func isValidName(_ name: String) -> Bool {
