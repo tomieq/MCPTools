@@ -13,7 +13,8 @@ let package = Package(
         .library(name: "MCPGit", targets: ["MCPGit"]),
         .library(name: "MCPShell", targets: ["MCPShell"]),
         .library(name: "MCPRemoteShell", targets: ["MCPRemoteShell"]),
-        .library(name: "MCPConfluence", targets: ["MCPConfluence"])
+        .library(name: "MCPConfluence", targets: ["MCPConfluence"]),
+        .library(name: "MCPSkill", targets: ["MCPSkill"])
     ],
     dependencies: [
         .package(url: "https://github.com/tomieq/swifter", .upToNextMajor(from: "3.1.1")),
@@ -51,6 +52,10 @@ let package = Package(
                     .product(name: "MCPServer", package: "MCPServer"),
                     .product(name: "WebResponse", package: "WebResponse")
                 ]),
+        .target(name: "MCPSkill",
+                dependencies: [
+                    .product(name: "MCPServer", package: "MCPServer")
+                ]),
         .executableTarget(
             name: "MCPFileEditorServer",
             dependencies: [
@@ -59,12 +64,17 @@ let package = Package(
                 .target(name: "MCPShell"),
                 .target(name: "MCPRemoteShell"),
                 .target(name: "MCPConfluence"),
+                .target(name: "MCPSkill"),
                 .product(name: "Env", package: "Env")
             ]
         ),
         .testTarget(
             name: "MCPFileEditorTests",
             dependencies: ["MCPFileEditor"]
+        ),
+        .testTarget(
+            name: "MCPSkillTests",
+            dependencies: ["MCPSkill"]
         )
     ],
     swiftLanguageModes: [.v5]
