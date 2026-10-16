@@ -19,6 +19,8 @@ enum SkillCatalogError: LocalizedError {
 final class SkillCatalog {
     private static let skillFileName = "SKILL.md"
     private static let maximumContentBytes = 256 * 1024
+    private static let maximumExtraFiles = 100
+    private static let maximumExtraFilesBytes = 2 * 1024 * 1024
     private static let logger = Logger(SkillCatalog.self)
 
     private let lock = NSLock()
@@ -61,8 +63,9 @@ final class SkillCatalog {
         skills.first { $0.name == name }
     }
 
-    /// Stores a new skill as `<first path>/<name>/SKILL.md`. Existing skills are never overwritten.
-    func create(name: String, description: String, content: String) throws -> Skill {
+    /// Stores a new skill as `<first path>/<name>/SKILL.md` plus `files` (skill-relative path to text content).
+    /// Existing skills are never overwritten.
+    func create(name: String, description: String, content: String, files: [String: String] = [:]) throws -> Skill {
         guard let storageRoot else {
             throw SkillCatalogError.invalidSkill("No skill path is configured")
         }
@@ -78,6 +81,7 @@ final class SkillCatalog {
         guard !body.isEmpty, body.utf8.count <= Self.maximumContentBytes, !body.contains("\0") else {
             throw SkillCatalogError.invalidSkill("content must not be empty and must be at most \(Self.maximumContentBytes) bytes")
         }
+        let extraFiles = try Self.validatedExtraFiles(files)
 
         lock.lock()
         defer { lock.unlock() }
@@ -92,14 +96,58 @@ final class SkillCatalog {
             .replacingOccurrences(of: "\"", with: "\\\"")
         let markdown = "---\nname: \(name)\ndescription: \"\(escapedDescription)\"\n---\n\n\(body)\n"
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: false)
-        try markdown.write(to: directory.appendingPathComponent(Self.skillFileName), atomically: true, encoding: .utf8)
+        do {
+            try markdown.write(to: directory.appendingPathComponent(Self.skillFileName), atomically: true, encoding: .utf8)
+            for (path, text) in extraFiles {
+                let fileURL = directory.appendingPathComponent(path)
+                try FileManager.default.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+                try text.write(to: fileURL, atomically: true, encoding: .utf8)
+            }
+        } catch {
+            try? FileManager.default.removeItem(at: directory)
+            throw error
+        }
 
         guard let skill = Self.loadSkill(in: directory) else {
+            try? FileManager.default.removeItem(at: directory)
             throw SkillCatalogError.invalidSkill("Created skill could not be parsed")
         }
         Self.logger.i("Created skill: \(skill.name)")
         loadedSkills.append(skill)
         return skill
+    }
+
+    /// Returns the files with normalized relative paths, rejecting anything that could leave the skill folder.
+    private static func validatedExtraFiles(_ files: [String: String]) throws -> [String: String] {
+        guard files.count <= maximumExtraFiles else {
+            throw SkillCatalogError.invalidSkill("At most \(maximumExtraFiles) extra files are allowed")
+        }
+
+        var result: [String: String] = [:]
+        var totalBytes = 0
+        for (path, text) in files {
+            let components = path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
+            guard !components.isEmpty, !path.hasPrefix("/"), !path.contains("\0"), !path.contains("\\"),
+                  components.allSatisfy({ $0 != ".." && $0 != "." && !$0.hasPrefix(".") }) else {
+                throw SkillCatalogError.invalidSkill("Invalid file path: \(path). Use a relative path inside the skill folder without '..' or hidden components")
+            }
+            let normalized = components.joined(separator: "/")
+            guard normalized.lowercased() != skillFileName.lowercased() else {
+                throw SkillCatalogError.invalidSkill("\(skillFileName) is generated from content and cannot be passed as an extra file")
+            }
+            guard result[normalized] == nil else {
+                throw SkillCatalogError.invalidSkill("Duplicate file path: \(normalized)")
+            }
+            guard !text.contains("\0") else {
+                throw SkillCatalogError.invalidSkill("File is not text: \(path)")
+            }
+            totalBytes += text.utf8.count
+            guard text.utf8.count <= maximumContentBytes, totalBytes <= maximumExtraFilesBytes else {
+                throw SkillCatalogError.invalidSkill("Extra files are too large: at most \(maximumContentBytes) bytes per file and \(maximumExtraFilesBytes) bytes in total")
+            }
+            result[normalized] = text
+        }
+        return result
     }
 
     private static func isValidName(_ name: String) -> Bool {

@@ -111,6 +111,32 @@ final class SkillCatalogTests: XCTestCase {
         XCTAssertThrowsError(try catalog.create(name: "ok", description: "d", content: "  "))
     }
 
+    func testCreateWritesExtraFilesAtRelativePaths() throws {
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+        let created = try catalog.create(name: "with-files", description: "d", content: "Body", files: [
+            "references/api.md": "API",
+            "run.sh": "echo hi"
+        ])
+
+        let read = { try String(contentsOf: created.directoryURL.appendingPathComponent($0), encoding: .utf8) }
+        XCTAssertEqual(try read("references/api.md"), "API")
+        XCTAssertEqual(try read("run.sh"), "echo hi")
+        XCTAssertEqual(try read("SKILL.md").contains("Body"), true)
+    }
+
+    func testCreateRejectsUnsafeExtraFilesWithoutLeavingFolder() throws {
+        let catalog = try SkillCatalog(skillPaths: [directory.path])
+
+        for path in ["../escape.md", "/abs.md", "a/../../b.md", ".hidden", "SKILL.md", "skill.md", ""] {
+            XCTAssertThrowsError(try catalog.create(name: "bad", description: "d", content: "c", files: [path: "x"]), path)
+        }
+        // A file and a folder with the same path fail while writing and must be rolled back.
+        XCTAssertThrowsError(try catalog.create(name: "bad", description: "d", content: "c", files: ["a": "x", "a/b": "y"]))
+        XCTAssertNil(catalog.skill(named: "bad"))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.appendingPathComponent("bad").path))
+        XCTAssertFalse(FileManager.default.fileExists(atPath: directory.deletingLastPathComponent().appendingPathComponent("escape.md").path))
+    }
+
     func testThrowsForMissingPath() {
         XCTAssertThrowsError(try SkillCatalog(skillPaths: [directory.appendingPathComponent("missing").path]))
     }

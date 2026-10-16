@@ -43,7 +43,8 @@ final class SkillEngine: Engine {
                   inputSchema: .init(properties: [
                       "name": .init(type: .string, description: "Unique skill name, also used as the folder name: letters, digits, '-', '_' or '.', at most 64 characters."),
                       "description": .init(type: .string, description: "One sentence saying what the skill does and when to use it."),
-                      "content": .init(type: .string, description: "Skill instructions in Markdown, without frontmatter.")
+                      "content": .init(type: .string, description: "Skill instructions in Markdown, without frontmatter."),
+                      "files": .init(type: .object, description: "Optional extra text files stored next to SKILL.md, as an object mapping a path relative to the skill folder (for example \"references/api.md\") to the file content. Parent folders are created. Reference them from the instructions so they can be read with skill_read_file.")
                   ], required: ["name", "description", "content"]))
         ]
     }
@@ -87,7 +88,8 @@ final class SkillEngine: Engine {
                 }
                 let skill = try catalog.create(name: arguments.name,
                                                description: arguments.description,
-                                               content: arguments.content)
+                                               content: arguments.content,
+                                               files: arguments.files ?? [:])
                 return ToolResult(["Skill created: \(skill.name) (\(skill.directoryURL.path))"])
             case nil:
                 return ToolResult([])
@@ -187,6 +189,7 @@ private struct CreateArguments: Decodable {
     let name: String
     let description: String
     let content: String
+    let files: [String: String]?
 }
 
 private struct SkillSummary: Encodable {
