@@ -12,10 +12,16 @@ public final class MCPShell {
 
     public init(config: ShellConfig,
                 server: HttpServer? = nil) throws {
+        for entry in config.additionalPathEntries {
+            guard entry.isEmpty.not, entry.contains("\0").not, entry.hasPrefix("/") else {
+                throw ShellConfigurationError.invalidPathEntry(entry)
+            }
+        }
         let projectDirectory = try ShellProjectDirectory(projectPath: config.projectPath)
         let serverConfig = MCPServerConfig(
             serverName: "MCP Shell",
-            engines: [ShellEngine(projectDirectory: projectDirectory)]
+            engines: [ShellEngine(projectDirectory: projectDirectory,
+                                  additionalPathEntries: config.additionalPathEntries)]
         )
         self.mcp = MCPServer(config: serverConfig, server: server)
     }

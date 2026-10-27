@@ -75,6 +75,10 @@ let package = Package(
         .testTarget(
             name: "MCPSkillTests",
             dependencies: ["MCPSkill"]
+        ),
+        .testTarget(
+            name: "MCPShellTests",
+            dependencies: ["MCPShell"]
         )
     ],
     swiftLanguageModes: [.v5]

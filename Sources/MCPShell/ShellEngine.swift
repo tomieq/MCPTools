@@ -12,8 +12,11 @@ private enum ShellCommand: String, CustomStringConvertible {
 
 final class ShellEngine: Engine {
     private let projectDirectory: ShellProjectDirectory
-    init(projectDirectory: ShellProjectDirectory) {
+    private let additionalPathEntries: [String]
+
+    init(projectDirectory: ShellProjectDirectory, additionalPathEntries: [String] = []) {
         self.projectDirectory = projectDirectory
+        self.additionalPathEntries = additionalPathEntries
     }
 
     let instructions = "Run shell commands with the configured project directory as the fixed initial working directory. Use this only when no dedicated MCP tool fits. Use shell_spawn for long-lived processes; it returns immediately and discards all process output. These tools may change files and run arbitrary executables. They are not a filesystem sandbox."
@@ -60,6 +63,17 @@ final class ShellEngine: Engine {
         } catch {
             return failure(error)
         }
+    }
+
+    /// Prepends the configured additional `PATH` entries before the inherited value, preserving
+    /// their order so earlier entries take priority over later ones.
+    func prependAdditionalPathEntries(to environment: inout [String: String]) {
+        guard additionalPathEntries.isEmpty.not else { return }
+        var entries = additionalPathEntries
+        if let inherited = environment["PATH"], inherited.isEmpty.not {
+            entries.append(inherited)
+        }
+        environment["PATH"] = entries.joined(separator: ":")
     }
 }
 
@@ -167,6 +181,7 @@ private extension ShellEngine {
             }
             environment[key] = value
         }
+        prependAdditionalPathEntries(to: &environment)
         return environment
     }
 
