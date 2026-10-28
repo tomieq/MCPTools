@@ -30,9 +30,9 @@ final class ConfluenceEngine: Engine {
         ConfluenceCommand(rawValue: command) != nil
     }
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         do {
-            let request: Command<Arguments> = try body.decode()
+            let request: Command<Arguments> = try request.body.decode()
             guard let arguments = request.params?.arguments else {
                 throw ConfluenceError.invalidArgument("Missing tool arguments")
             }

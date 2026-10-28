@@ -178,18 +178,19 @@ class CoderEngine: Engine {
                             required: ["find", "replace", "expectedMatches"]))
     ]
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         do {
-            return try execute(command, body: body)
+            return try execute(command, request: request)
         } catch {
             return responses.failure(error)
         }
     }
 
-    private func execute(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    private func execute(_ command: String, request: HttpRequest) throws -> ToolResult {
         guard let command = self.command(for: command) else {
             return ToolResult([])
         }
+        let body = request.body
         let dto: ToolResult
         switch command {
         case .file_tree:

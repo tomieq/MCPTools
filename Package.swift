@@ -17,7 +17,7 @@ let package = Package(
         .library(name: "MCPSkill", targets: ["MCPSkill"])
     ],
     dependencies: [
-        .package(url: "https://github.com/tomieq/swifter", .upToNextMajor(from: "3.1.1")),
+        .package(url: "https://github.com/tomieq/swifter", .upToNextMajor(from: "4.0.0")),
         .package(url: "https://github.com/tomieq/Logger", .upToNextMajor(from: "1.1.0")),
         .package(url: "https://github.com/tomieq/Env", .upToNextMajor(from: "1.0.8")),
         .package(url: "https://github.com/tomieq/MCPServer", branch: "master"),

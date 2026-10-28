@@ -128,8 +128,9 @@ final class GitEngine: Engine {
          */
     ]
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         guard let command = GitCommand(rawValue: command) else { return ToolResult([]) }
+        let body = request.body
         do {
             switch command {
             case .repositoryInfo: return try result(repositoryInfo())

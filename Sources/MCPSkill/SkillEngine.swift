@@ -74,8 +74,9 @@ final class SkillEngine: Engine {
         SkillCommand(rawValue: command) != nil
     }
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         do {
+            let body = request.body
             switch SkillCommand(rawValue: command) {
             case .list:
                 return ToolResult([list()])

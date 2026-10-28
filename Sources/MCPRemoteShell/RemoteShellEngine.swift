@@ -35,8 +35,9 @@ final class RemoteShellEngine: Engine {
         RemoteShellCommand(rawValue: command) != nil
     }
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         do {
+            let body = request.body
             let request: Command<Arguments> = try body.decode()
             guard let arguments = request.params?.arguments else {
                 throw RemoteShellError.invalidArgument("Missing tool arguments")

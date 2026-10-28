@@ -42,8 +42,9 @@ final class ShellEngine: Engine {
         ShellCommand(rawValue: command) != nil
     }
 
-    func call(_ command: String, body: HttpRequestBody) throws -> ToolResult {
+    func call(_ command: String, request: HttpRequest) throws -> ToolResult {
         do {
+            let body = request.body
             switch ShellCommand(rawValue: command) {
             case .run:
                 let request: Command<Arguments> = try body.decode()
